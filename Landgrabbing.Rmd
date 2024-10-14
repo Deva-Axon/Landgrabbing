@@ -1,0 +1,149 @@
+---
+title: "Grains and Landgrabbing"
+author: "Devasenapathi Mani Avayambigai"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load necessary libraries
+library(readxl)
+library(dplyr)
+library(stringr)  
+options(repos=structure(c(CRAN="https://mirrors.nics.utk.edu/cran/")))
+install.packages("tidyverse")
+library(tidyverse)
+install.packages("ggplot2")
+library(ggplot2)
+install.packages("dplyr")
+library(dplyr)
+install.packages("readr")
+library(readr)
+```
+
+``` {R codes, echo = TRUE}
+# Read both sheets from the Excel file
+grain <- "E:/RootR/grain.xlsx"
+sheet1 <- read_excel(grain, sheet = 1)  
+sheet2 <- read_excel(grain, sheet = 2)  
+
+# Check the structure of both sheets
+str(sheet1)
+str(sheet2)
+
+# Rename the 'Year ' column to 'Year' to remove any trailing space
+names(sheet2)[names(sheet2) == 'Year '] <- 'Year'
+
+# Convert the 'Year' column to numeric, invalid parsing will become NA
+sheet2$Year <- as.numeric(sheet2$Year)
+
+
+# Append both sheets (combine rows)
+combined_data <- bind_rows(sheet1, sheet2)
+
+# Remove rows where 'Landgrabbed' contains '---'
+combined_data <- combined_data %>%
+  filter(Landgrabbed != "---")
+
+# Convert '0' in 'Year' to 2000 and '17' to 2017
+combined_data$Year <- ifelse(combined_data$Year == 0, 2000, combined_data$Year)
+combined_data$Year <- ifelse(combined_data$Year == 17, 2017, combined_data$Year)
+
+# Replace 'AUS' or 'Aus' with 'Australia'
+combined_data$Landgrabbed <- gsub("\\b[Aa][Uu][Ss]\\b", "Australia", combined_data$Landgrabbed)
+combined_data$Landgrabbed <- gsub("\\bArg\\b", "Argentina", combined_data$Landgrabbed)
+combined_data$Landgrabbed <- gsub("\\bRUS\\b", "Russia", combined_data$Landgrabbed)
+
+
+# Remove rows where 'Base' contains '--'
+combined_data <- combined_data %>%
+  filter(Base != "--")
+
+# Rename 'Projected investment' column to include 'US$ (millions)'
+colnames(combined_data)[colnames(combined_data) == "Projected investment"] <- "Projected investment (US$ millions)"
+
+# Remove 'US$' and 'million' from the contents of 'Projected investment (US$ millions)'
+combined_data$`Projected investment (US$ millions)` <- gsub("US\\$|million", "", combined_data$`Projected investment (US$ millions)`, ignore.case = TRUE)
+
+# Trim any extra spaces that might be left
+combined_data$`Projected investment (US$ millions)` <- trimws(combined_data$`Projected investment (US$ millions)`)
+
+
+# Remove rows where 'Hectares' is empty (As there is no way to assign any hectare to these rows)
+combined_data <- combined_data %>%
+  filter(!is.na(Hectares) & Hectares != "")
+
+
+# Remove 'US' and 'dollar' from the contents of 'Projected investment (US$ millions)'
+combined_data$`Projected investment (US$ millions)` <- gsub("US|dollar", "", combined_data$`Projected investment (US$ millions)`, ignore.case = TRUE)
+
+# Trim any extra spaces that might be left
+combined_data$`Projected investment (US$ millions)` <- trimws(combined_data$`Projected investment (US$ millions)`)
+
+
+# Identify rows with 'billion' in the 'Projected investment (US$ millions)' column
+billion_rows <- grepl("billion", combined_data$`Projected investment (US$ millions)`, ignore.case = TRUE)
+
+# Remove 'billion' and multiply the numeric values by 1000
+combined_data$`Projected investment (US$ millions)`[billion_rows] <- 
+  as.numeric(gsub("[^0-9.]", "", combined_data$`Projected investment (US$ millions)`[billion_rows])) * 1000
+
+# Remove the word 'billion' from the column (covert millions to billions and maintain standard)
+combined_data$`Projected investment (US$ millions)` <- gsub("billion", "", combined_data$`Projected investment (US$ millions)`, ignore.case = TRUE)
+
+# Trim any extra spaces that might be left
+combined_data$`Projected investment (US$ millions)` <- trimws(combined_data$`Projected investment (US$ millions)`)
+
+# Remove rows where 'Projected investment (US$ millions)' contains any alphabetic characters (To remove US, dollars, and other statements, which rendered the column non-numeric)
+combined_data <- combined_data %>%
+  filter(!grepl("[A-Za-z]", `Projected investment (US$ millions)`))
+
+# Remove rows where 'Year' is greater than 2017 (As it was not possible to fix an year for irrelevant numbers)
+combined_data <- combined_data %>%
+  filter(Year <= 2017)
+
+# Arrange the combined data in ascending order by country (Landgrabbed)
+sorted_data <- combined_data %>%
+  arrange(Landgrabbed)
+
+
+```
+
+```{R charts, echo = TRUE}
+# Group by 'Landgrabbed' (country) and sum the 'Hectares'
+country_hectares <- combined_data %>%
+  group_by(Landgrabbed) %>%
+  summarise(total_hectares = sum(Hectares, na.rm = TRUE))
+
+# Load the ggplot2 library for plotting
+library(ggplot2)
+
+# Create the line chart
+ggplot(country_hectares, aes(x = Landgrabbed, y = total_hectares, group = 1)) +
+  geom_line() +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  # Rotate country names for better readability
+  labs(x = "Country", y = "Total Hectares", title = "Total Hectares by Country")
+
+# Group by 'Year' and sum the 'Hectares'
+year_hectares <- combined_data %>%
+  group_by(Year) %>%
+  summarise(total_hectares = sum(Hectares, na.rm = TRUE))
+
+# Convert 'Year' to a factor to handle discrete values properly
+year_hectares$Year <- as.factor(year_hectares$Year)
+
+# Create the line chart for 'Year' and 'Hectares'
+ggplot(year_hectares, aes(x = Year, y = total_hectares, group = 1)) +
+  geom_line() +
+  geom_point() +
+  labs(x = "Year", y = "Total Hectares", title = "Total Hectares by Year") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate year labels for readability
+```
+
+``` {R View, echo = TRUE}
+View(sorted_data)
+
+```
+
